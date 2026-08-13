@@ -4,6 +4,8 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
+> **▶ Live demo:** [https://semantic-cache-dzv2.onrender.com/docs](https://semantic-cache-dzv2.onrender.com/docs) — a running instance on Render's free tier. The first request after a while takes ~50s to wake the service, then it's fast.
+
 A caching middleware that sits between an application and any LLM provider, detects
 semantically similar requests that were already answered ("What is Python?" ≈ "Describe the
 Python programming language"), and serves cached responses instantly.
