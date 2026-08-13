@@ -1,11 +1,20 @@
 # Semantic Caching Layer for LLM APIs
 
+[![CI](https://github.com/Anas-Amiar/semantic-cache/actions/workflows/ci.yml/badge.svg)](https://github.com/Anas-Amiar/semantic-cache/actions/workflows/ci.yml)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 A caching middleware that sits between an application and any LLM provider, detects
 semantically similar requests that were already answered ("What is Python?" ≈ "Describe the
 Python programming language"), and serves cached responses instantly.
 
-**Load test headline (300 requests, realistic repeat traffic): 89.7% hit rate, 89.7% cost
-savings, P50 latency 2.6ms vs ~1000ms uncached.**
+Ships as a real HTTP service (FastAPI) **and** a pure, unit-tested core. Runs on a mock
+embedder + mock provider by default, so it needs **no API keys** — clone it and the proxy
+(or the one-click deploy) is live immediately.
+
+**Mock-mode load test (300 requests, realistic repeat traffic, simulated clock): 89.7% hit
+rate, 89.7% cost savings, P50 latency 2.6ms vs ~1000ms uncached.** Reproducible on your
+machine with `python3 -m cache.loadtest` — no keys, no network.
 
 And the number that matters more — the threshold tradeoff, measured with ground-truth
 intent labels:
@@ -43,8 +52,12 @@ cache/
                  rate per threshold — the core tradeoff, quantified
   loadtest.py    300-request load test on a SIMULATED clock (runs in milliseconds):
                  hit rate, latency percentiles, cost savings
+  app.py         FastAPI HTTP layer: POST /v1/complete, GET /stats, POST /invalidate,
+                 GET /health — the drop-in proxy an app points at instead of the LLM
 data/traffic.py  Labeled traffic: paraphrase groups that SHOULD share a cache entry, plus
                  look-alike queries (same vocabulary, different intent) that must NOT
+tests/           Deterministic pytest suite (paraphrase hits, look-alike misses, TTL,
+                 scope isolation/invalidation) — no network
 reports/         (gitignored)
 ```
 
@@ -60,11 +73,11 @@ reports/         (gitignored)
 - **Scope invalidation**: when a feature's system prompt changes, one call drops every
   entry in that scope.
 
-## Setup
+## Quickstart
 
 ```bash
-git clone https://github.com/Anas-Amiar/Project-8-semantic-cache.git
-cd "Project 8 - semantic-cache"
+git clone https://github.com/Anas-Amiar/semantic-cache.git
+cd semantic-cache
 pip install -r requirements.txt
 
 python3 -m cache.ttl_policy   # TTL tiers per prompt type
@@ -76,6 +89,45 @@ Mock mode throughout: bag-of-words embeddings, simulated provider latency/cost, 
 simulated clock (the load test replays hours of traffic in milliseconds). Swapping in
 production pieces: `embed()` → embedding API; `_mock_llm()` → real provider call; the
 store → Redis+RedisVL or Qdrant. The policies, tuner, and metrics are unchanged.
+
+## Run the API
+
+```bash
+uvicorn cache.app:app --reload    # http://localhost:8000  (interactive docs at /docs)
+```
+
+```bash
+# ask once -> miss (goes to the provider), then ask a paraphrase -> cache hit at $0
+curl -s -X POST localhost:8000/v1/complete -H 'content-type: application/json' \
+  -d '{"prompt":"What is Python programming language?"}'
+curl -s -X POST localhost:8000/v1/complete -H 'content-type: application/json' \
+  -d '{"prompt":"Describe the Python programming language"}'
+# -> {"cache":"hit","similarity":1.0,"cost_usd":0.0,"saved_usd":0.002, ...}
+```
+
+A look-alike query with different intent ("How do I install Python on Windows?") lands
+below the threshold and is correctly served as a miss, not a wrong cache hit. `GET /stats`
+returns the running hit rate and savings; `POST /invalidate` drops a scope's entries.
+The match threshold defaults to **0.40** (the tuner's sweet spot) — override with the
+`CACHE_THRESHOLD` env var.
+
+## Deploy your own
+
+Runs on the mock embedder + provider with no secrets, so a public demo is one click:
+
+- **Render** — New → Blueprint → point at this repo (`render.yaml` included, free tier).
+- **Docker** — `docker build -t semantic-cache . && docker run -p 8000:8000 semantic-cache`
+
+## Testing
+
+```bash
+pip install -r requirements-dev.txt
+pytest -q        # 15 tests, deterministic, no network
+```
+
+The core takes a caller-supplied clock, so TTL expiry is asserted by advancing a fake
+clock; paraphrase hits and look-alike misses are asserted against the labeled traffic.
+CI runs the suite on Python 3.10–3.12.
 
 ## Architecture decisions
 
@@ -99,8 +151,6 @@ test replay realistic inter-arrival times without actually waiting.
 
 ## What's deliberately out of scope for v1
 
-- The FastAPI proxy mirroring the OpenAI API contract (the cache logic is the substance;
-  the HTTP wrapper is boilerplate)
 - Real Redis/Qdrant backend (in-memory store isolates the same interface)
 - Streaming support (buffer-while-streaming on misses)
 - Adaptive per-request-type thresholds learned from feedback

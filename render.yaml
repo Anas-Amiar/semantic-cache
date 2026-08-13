@@ -1,0 +1,11 @@
+# One-click deploy on Render (https://render.com).
+# New > Blueprint > point at this repo. Free tier, no secrets required —
+# the cache runs on the mock embedder + mock provider out of the box.
+services:
+  - type: web
+    name: semantic-cache
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn cache.app:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
